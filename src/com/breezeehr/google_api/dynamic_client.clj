@@ -59,12 +59,12 @@
                             (assoc :url (str baseUrl (path-fn op)))
                             (add-auth client)
                             (assoc :query-params (key-sel-fn op)
-                                   :aleph/save-request-message lastmessage
+                                   ; :aleph/save-request-message lastmessage
                                    :throw-exceptions false)
                             (cond->
                               request (assoc :body (cheshire.core/generate-string
                                                      (:request op))))
-                            (doto prn)
+                            ;(doto prn)
                             http/request))}]))
 
 (defn prepare-methods [api-discovery parameters methods]
