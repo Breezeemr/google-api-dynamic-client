@@ -67,18 +67,18 @@
                             (doto prn)
                             http/request))}]))
 
-(defn prepare-methods [api-discovery path parameters methods]
+(defn prepare-methods [api-discovery parameters methods]
   (reduce-kv
     (fn [acc k method]
       (conj acc (make-method api-discovery parameters method)))
     {}
     methods))
 
-(defn prepare-resources [api-discovery path parameters resources]
+(defn prepare-resources [api-discovery parameters resources]
   (reduce-kv
     (fn [acc k {:keys [methods resources]}]
-      (cond-> (into acc (prepare-methods api-discovery (conj path k) parameters methods))
-              (not-empty resources) (into (prepare-resources api-discovery (conj path k) parameters resources)))
+      (cond-> (into acc (prepare-methods api-discovery  parameters methods))
+              (not-empty resources) (into (prepare-resources api-discovery parameters resources)))
       )
     {}
     resources))
@@ -101,7 +101,6 @@
        :api api
        :ops (prepare-resources
               api-discovery
-              []
               (or (:parameters api-discovery) [])
               (:resources api-discovery)))))
   ([config api version]
@@ -122,7 +121,6 @@
        :version version
        :ops (prepare-resources
               api-discovery
-              []
               (or (:parameters api-discovery) [])
               (:resources api-discovery))))))
 
