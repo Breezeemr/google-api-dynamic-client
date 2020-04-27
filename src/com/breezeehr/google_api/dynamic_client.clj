@@ -4,6 +4,8 @@
              :refer [add-auth init-client]]
             [com.breezeehr.google-api.boostrap
              :refer [list-apis get-discovery]]
+            [clojure.alpha.spec :as s]
+            [clojure.alpha.spec.gen :as gen]
             [aleph.http :as http]
             [cemerick.url :as url]
             [clojure.string :as str]))
@@ -97,6 +99,7 @@
          _      (assert discovery-ref (str "api " api " not found"))
          api-discovery
                 (get-discovery client discovery-ref)]
+     (reset! lastmessage api-discovery )
      (assoc client
        :api api
        :ops (prepare-resources
@@ -141,7 +144,66 @@
                       (:version client)))
     (opfn client operation)))
 
-
+(defn make-spec! [discovery path n {t :type :as schema}]
+  (case t
+    "object"
+    (let [{:keys [properties]} schema]
+      (if (empty? properties)
+        (s/register
+          (keyword path (name n))
+          (s/resolve-spec 'clojure.core/map?))
+        (do
+          (doseq [[pname property] properties]
+            (make-spec! discovery path pname property))
+          (prn (->> (into
+                      {}
+                      (map (fn [[pname {t :type :as property}]]
+                             [pname (keyword path (name pname))]
+                             ))
+                      properties)
+                    list
+                    (cons `s/schema)))
+          (s/register
+            (keyword path (name n))
+            (s/resolve-spec
+              (->> (into
+                     {}
+                     (map (fn [[pname {t :type :as property}]]
+                            [pname (keyword path (name pname))]
+                            ))
+                     properties)
+                   list
+                   (cons `s/schema)))))))
+    "string"
+    (let [{:keys [properties]} schema]
+      (s/register
+        (keyword path (name n))
+        (s/resolve-spec 'clojure.core/string?))
+      )
+    "boolean"
+    (let [{:keys [properties]} schema]
+      (s/register
+        (keyword path (name n))
+        (s/resolve-spec 'clojure.core/boolean?))
+      )
+    "integer"
+    (let [{:keys [properties]} schema]
+      (s/register
+        (keyword path (name n))
+        (s/resolve-spec 'clojure.core/integer?))
+      )
+    "array"
+    (let [{:keys [items]} schema
+          pname         (keyword (:$ref items))
+          subschema (some-> discovery :schemas pname)]
+      (make-spec! discovery path pname subschema)
+      (s/register
+        (keyword path (name n))
+        (s/resolve-spec
+          (->> (keyword path (name pname))
+               list
+               (cons 's/coll-of))))
+      )))
 
 (comment
 
@@ -150,3 +212,28 @@
                                  :project "breezeehr.com:breeze-ehr"}))
 
   (ops storage-client))
+
+(comment
+  (def discovery @lastmessage)
+  (-> discovery :schemas :Object)
+  (def o (-> discovery :schemas :Object))
+  (make-spec! discovery "blah" :Object o)
+  )
+
+
+(comment
+  (s/register
+    :blah/name2
+    (s/resolve-spec 'clojure.core/string?))
+  (s/register
+    :blah/Object2
+    (s/resolve-spec
+      `(s/schema {:name :blah/name2})))
+  (s/explain :blah/Object2 {:name "hi"} )
+  ;-> Success!
+  (s/explain :blah/Object2 {:name "hi"} {:closed #{:blah/Object2}})
+  ;-> {:name "hi"} - failed: (subset? (set (keys %)) #{}) spec: :blah/Object2
+(s/def :blah/name2 clojure.core/string?)
+  (s/def :blah/Object2 (s/schema {:name :blah/name2}))
+  ;https://github.com/clojure/spec-alpha2/blob/master/src/main/clojure/clojure/alpha/spec/impl.clj#L452
+  )
