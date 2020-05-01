@@ -3,7 +3,7 @@
             [com.breezeehr.google-api.java-auth
              :refer [add-auth init-client]]
             [com.breezeehr.google-api.boostrap
-             :refer [list-apis get-discovery]]
+             :as bootstrap]
             [aleph.http :as http]
             [cemerick.url :as url]
             [clojure.string :as str]))
@@ -91,13 +91,13 @@
                 (reduce (fn [acc v]
                           (when (:preferred v)
                             (reduced v)))
-                        nil (list-apis
+                        nil (bootstrap/list-apis
                               client
                               {:name    api
                                "fields" "items.discoveryRestUrl,items.name,items.version,items.preferred"}))
          _      (assert discovery-ref (str "api " api " not found"))
          api-discovery
-                (get-discovery client discovery-ref)]
+                (bootstrap/get-discovery client discovery-ref)]
      (assoc client
        :api api
        :ops (prepare-resources
@@ -110,13 +110,13 @@
                 (reduce (fn [acc v]
                           (when (= (:version v) version)
                             (reduced v)))
-                        nil (list-apis
+                        nil (bootstrap/list-apis
                               client
                               {:name    api
                                "fields" "items.discoveryRestUrl,items.name,items.version"}))
          _      (assert discovery-ref (str "api " api " version " version " not found"))
          api-discovery
-                (get-discovery client discovery-ref)]
+                (bootstrap/get-discovery client discovery-ref)]
      (assoc client
        :api api
        :version version
