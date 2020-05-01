@@ -62,8 +62,9 @@
                                    ; :aleph/save-request-message lastmessage
                                    :throw-exceptions false)
                             (cond->
-                              request (assoc :body (cheshire.core/generate-string
-                                                     (:request op))))
+                                request (assoc :body (let [enc-body (:request op)]
+                                                       (assert enc-body (str "Request cannot be nil for operation "  (:op op)))
+                                                       (cheshire.core/generate-string enc-body))))
                             ;(doto prn)
                             http/request))}]))
 
