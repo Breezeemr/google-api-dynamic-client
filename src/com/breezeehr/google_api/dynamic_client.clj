@@ -53,7 +53,7 @@
     ;(prn (keys method-discovery))
     [id {:id          id
          :description (:description method-discovery)
-         :preform
+         :request
                       (fn [client op]
                         (-> init-map
                             (assoc :url (str baseUrl (path-fn op)))
@@ -66,7 +66,7 @@
                                                        (assert enc-body (str "Request cannot be nil for operation "  (:op op)))
                                                        (cheshire.core/generate-string enc-body))))
                             ;(doto prn)
-                            http/request))}]))
+                            ))}]))
 
 (defn prepare-methods [api-discovery parameters methods]
   (reduce-kv
@@ -133,14 +133,17 @@
       (println \newline))
     (->> client :ops
          (sort-by key))))
-
-(defn invoke [client {:keys [op] :as operation}]
-  (let [opfn (-> client :ops (get op) :preform)]
-    (assert opfn (str op
+(defn request [client {:keys [op] :as operation}]
+  (let [reqfn (-> client :ops (get op) :request)]
+    (assert reqfn (str op
                       " is not implemented in "
                       (:api client)
                       (:version client)))
-    (opfn client operation)))
+    (reqfn client operation)))
+
+(defn invoke [client {:keys [op] :as operation}]
+  (let [req (request client operation)]
+    (http/request req)))
 
 
 
@@ -149,5 +152,8 @@
   (def storage-client (dynamic-create-client {} "storage"))
   (deref (invoke storage-client {:op      "storage.buckets.list"
                                  :project "breezeehr.com:breeze-ehr"}))
+  (request storage-client {:op      "storage.buckets.list"
+                          :project "breezeehr.com:breeze-ehr"})
+
 
   (ops storage-client))
