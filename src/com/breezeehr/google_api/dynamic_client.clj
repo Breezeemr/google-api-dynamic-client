@@ -83,18 +83,29 @@
       )
     {}
     resources))
+(defn prefered-discovery [discovery-docs]
+  (reduce (fn [acc v]
+            (when (:preferred v)
+              (reduced v)))
+          nil
+          discovery-docs))
+
+(defn discovery-matching-version [version discovery-docs]
+  (reduce (fn [acc v]
+            (when (= (:version v) version)
+              (reduced v)))
+          nil
+          discovery-docs))
 
 (defn dynamic-create-client
   ([config api]
    (let [client (init-client config)
          discovery-ref
-                (reduce (fn [acc v]
-                          (when (:preferred v)
-                            (reduced v)))
-                        nil (bootstrap/list-apis
-                              client
-                              {:name    api
-                               "fields" "items.discoveryRestUrl,items.name,items.version,items.preferred"}))
+         (prefered-discovery
+           (bootstrap/list-apis
+             client
+             {:name    api
+              "fields" "items.discoveryRestUrl,items.name,items.version,items.preferred"}))
          _      (assert discovery-ref (str "api " api " not found"))
          api-discovery
                 (bootstrap/get-discovery client discovery-ref)]
@@ -107,13 +118,12 @@
   ([config api version]
    (let [client (init-client config)
          discovery-ref
-                (reduce (fn [acc v]
-                          (when (= (:version v) version)
-                            (reduced v)))
-                        nil (bootstrap/list-apis
-                              client
-                              {:name    api
-                               "fields" "items.discoveryRestUrl,items.name,items.version"}))
+         (discovery-matching-version
+           version
+           (bootstrap/list-apis
+             client
+             {:name    api
+              "fields" "items.discoveryRestUrl,items.name,items.version"}))
          _      (assert discovery-ref (str "api " api " version " version " not found"))
          api-discovery
                 (bootstrap/get-discovery client discovery-ref)]
