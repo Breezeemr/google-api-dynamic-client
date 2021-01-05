@@ -9,62 +9,69 @@
             [clojure.string :as str]))
 
 
-(defn fast-select-keys [map ks]
-  (->
-    (reduce
-      (fn [acc k]
-        (if-some [val (find map k)]
-          (conj! acc val)
-          acc))
-      (transient {})
-      ks)
-    persistent!
-    (with-meta (meta map))))
+(defn fast-select-keys [ks]
+  (let [ks (into [] (map keyword) ks)]
+    (fn [m]
+      (->
+        (reduce
+          (fn [acc k]
+            (if-some [val (find m k)]
+              (conj! acc val)
+              acc))
+          (transient {})
+          ks)
+        persistent!
+        (with-meta (meta map))))))
 
-(def lastmessage (atom nil))
+(defn make-path-fn [baseUrl path path-params id]
+  (let [path-ops (into [(fn [^StringBuffer acc values]
+                          (.append acc baseUrl))]
+                       (comp
+                         (mapcat #(clojure.string/split % #"\}"))
+                         (map (fn [x]
+                                (if-some [path-param (get path-params x)]
+                                  (let [k (keyword x)]
+                                    (fn [^StringBuffer acc values]
+                                      (let [v (k values)]
+                                        (assert v (str "your input " (pr-str values) " must contains key " k " for " id " path."))
+                                        (.append acc v))))
+                                  (fn [^StringBuffer acc values]
+                                    (.append acc x))))))
+                       (clojure.string/split path #"\{"))]
+    ;(prn path path-ops)
+    (fn [vals]
+      (.toString (reduce
+                   (fn [acc bfn]
+                     (bfn acc vals))
+                   (StringBuffer.)
+                   path-ops)))))
 
-
-(defn make-path-fn [path path-params id]
-  (fn [vals]
-    (reduce-kv
-      (fn [acc parameter v]
-        (let [nv (get vals parameter)]
-          (assert nv (str "your input " (pr-str vals) " must contains key " parameter " for " id " path."))
-          (clojure.string/replace
-            acc
-            (str "{" (name parameter) "}")
-            nv)))
-      path
-      path-params)))
-
-(defn make-method [{:keys [baseUrl] :as api-discovery}
+(defn make-method [{:strs [baseUrl] :as api-discovery}
                    upper-parameters
-                   {:keys [httpMethod path parameters request id]
+                   {:strs [httpMethod path parameters request id]
                     :as   method-discovery}]
   (let [parameters (into upper-parameters parameters)
         init-map     {:method httpMethod
                       :as     :json}
-        path-params  (into {} (filter (comp #(= % "path") :location val)) parameters)
-        path-fn      (make-path-fn path path-params id)
-        query-params (into {} (filter (comp #(= % "query") :location val)) parameters)
+        path-params  (into {} (filter (comp #(= % "path") #(get % "location") val)) parameters)
+        path-fn      (make-path-fn baseUrl path path-params id)
+        query-params (into {} (filter (comp #(= % "query") #(get % "location") val)) parameters)
         query-ks     (into [] (map key) query-params)
-        key-sel-fn   (fn [m]
-                       (fast-select-keys m query-ks))]
+        key-sel-fn   (fast-select-keys query-ks)]
     ;(prn (keys method-discovery))
     [id {:id          id
-         :description (:description method-discovery)
+         :description (get method-discovery "description")
          :request
                       (fn [client op]
                         (-> init-map
-                            (assoc :url (str baseUrl (path-fn op)))
+                            (assoc :url (path-fn op))
                             (add-auth client)
                             (assoc :query-params (key-sel-fn op)
-                                   ; :aleph/save-request-message lastmessage
                                    :throw-exceptions false)
                             (cond->
-                                request (assoc :body (let [enc-body (:request op)]
-                                                       (assert enc-body (str "Request cannot be nil for operation "  (:op op)))
-                                                       (cheshire.core/generate-string enc-body))))
+                              request (assoc :body (let [enc-body (:request op)]
+                                                     (assert enc-body (str "Request cannot be nil for operation " (:op op)))
+                                                     (cheshire.core/generate-string enc-body))))
                             ;(doto prn)
                             ))}]))
 
@@ -77,7 +84,7 @@
 
 (defn prepare-resources [api-discovery parameters resources]
   (reduce-kv
-    (fn [acc k {:keys [methods resources]}]
+    (fn [acc k {:strs [methods resources]}]
       (cond-> (into acc (prepare-methods api-discovery  parameters methods))
               (not-empty resources) (into (prepare-resources api-discovery parameters resources)))
       )
@@ -85,14 +92,14 @@
     resources))
 (defn prefered-discovery [discovery-docs]
   (reduce (fn [acc v]
-            (when (:preferred v)
+            (when (get v "preferred")
               (reduced v)))
           nil
           discovery-docs))
 
 (defn discovery-matching-version [version discovery-docs]
   (reduce (fn [acc v]
-            (when (= (:version v) version)
+            (when (= (get v "version") version)
               (reduced v)))
           nil
           discovery-docs))
@@ -113,8 +120,8 @@
        :api api
        :ops (prepare-resources
               api-discovery
-              (or (:parameters api-discovery) [])
-              (:resources api-discovery)))))
+              (or (get api-discovery "parameters") [])
+              (get api-discovery "resources")))))
   ([config api version]
    (let [client (init-client config)
          discovery-ref
@@ -132,8 +139,8 @@
        :version version
        :ops (prepare-resources
               api-discovery
-              (or (:parameters api-discovery) [])
-              (:resources api-discovery))))))
+              (or (get api-discovery "parameters") [])
+              (get api-discovery "resources"))))))
 
 (defn ops [client]
   (run!
@@ -151,7 +158,7 @@
                       (:version client)))
     (reqfn client operation)))
 
-(defn invoke [client {:keys [op] :as operation}]
+(defn invoke [client operation]
   (let [req (request client operation)]
     (http/request req)))
 
@@ -163,7 +170,10 @@
   (deref (invoke storage-client {:op      "storage.buckets.list"
                                  :project "breezeehr.com:breeze-ehr"}))
   (request storage-client {:op      "storage.buckets.list"
-                          :project "breezeehr.com:breeze-ehr"})
+                           :project "breezeehr.com:breeze-ehr"})
+  (request storage-client {:op      "storage.buckets.get"
+                           :bucket "umls"
+                           :project "breezeehr.com:breeze-ehr"})
 
 
   (ops storage-client))
