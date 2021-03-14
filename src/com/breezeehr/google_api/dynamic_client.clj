@@ -90,7 +90,7 @@
          :request
                       (fn [client op]
                         ;(clojure.pprint/pprint method-discovery)
-                        (prn path path path-params)
+                        ;(prn path path path-params)
                         (-> init-map
                             (assoc :url (path-fn op))
                             (add-auth client)
