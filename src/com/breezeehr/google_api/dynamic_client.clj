@@ -23,21 +23,46 @@
         persistent!
         (with-meta (meta map))))))
 
-(defn make-path-fn [baseUrl path path-params id]
-  (let [path-ops (into [(fn [^StringBuffer acc values]
-                          (.append acc baseUrl))]
-                       (comp
-                         (mapcat #(clojure.string/split % #"\}"))
-                         (map (fn [x]
-                                (if-some [path-param (get path-params x)]
-                                  (let [k (keyword x)]
-                                    (fn [^StringBuffer acc values]
-                                      (let [v (k values)]
-                                        (assert v (str "your input " (pr-str values) " must contains key " k " for " id " path."))
-                                        (.append acc v))))
-                                  (fn [^StringBuffer acc values]
-                                    (.append acc x))))))
-                       (clojure.string/split path #"\{"))]
+(defn param-pattern [param]
+  (re-pattern (str "\\{\\+{0,1}" param"\\}")))
+
+(defn make-path-fn [baseUrl path path-params parameterOrder id]
+  (let [full-path path
+        path-ops
+        (transduce
+          (filter (fn [param] (get path-params param)))
+          (fn
+            ([{:keys [path path-vec]}]
+             (if path
+               (conj path-vec (fn [^StringBuffer acc values]
+                                (.append acc path)))
+               path-vec))
+            ([{:keys [path] :as acc} param]
+             (assert (get path-params param) (str param (pr-str path-params)))
+             (let [pattern (param-pattern param)
+                   k (keyword param)
+                   {validation-pattern "pattern" :as path-param} (get path-params param)
+                   compiled-validation-pattern (when validation-pattern
+                                          (re-pattern validation-pattern))
+                   _
+                   (assert (re-find pattern path) (str "\"" param "\" is not found in \"" full-path "\""))
+                   [prefix left-over-path :as match] (clojure.string/split path pattern)]
+               (assert (<= (count match) 2) (str "\"" param "\" is found more than once in \"" full-path "\""))
+               (-> acc
+                   (assoc :path left-over-path)
+                   (update :path-vec into
+                           [(fn [^StringBuffer acc values]
+                              (.append acc prefix))
+                            (fn [^StringBuffer acc values]
+                              (let [v (k values)]
+                                (assert v (str "your input " (pr-str values) " must contains key " k " for " id " path."))
+                                (when compiled-validation-pattern
+                                  (assert (re-matches compiled-validation-pattern v) (str "\"" v "\" did not match #\"" validation-pattern "\"")))
+                                (.append acc v)))])))))
+          {:path     path
+           :path-vec [(fn [^StringBuffer acc values]
+                        (.append acc baseUrl))]}
+          parameterOrder)]
     ;(prn path path-ops)
     (fn [vals]
       (.toString (reduce
@@ -48,13 +73,13 @@
 
 (defn make-method [{:strs [baseUrl] :as api-discovery}
                    upper-parameters
-                   {:strs [httpMethod path parameters request id]
+                   {:strs [httpMethod parameterOrder path parameters request id]
                     :as   method-discovery}]
   (let [parameters (into upper-parameters parameters)
         init-map     {:method httpMethod
                       :as     :json}
         path-params  (into {} (filter (comp #(= % "path") #(get % "location") val)) parameters)
-        path-fn      (make-path-fn baseUrl path path-params id)
+        path-fn      (make-path-fn baseUrl path path-params parameterOrder id)
         query-params (into {} (filter (comp #(= % "query") #(get % "location") val)) parameters)
         query-ks     (into [] (map key) query-params)
         key-sel-fn   (fast-select-keys query-ks)]
@@ -63,6 +88,8 @@
          :description (get method-discovery "description")
          :request
                       (fn [client op]
+                        ;(clojure.pprint/pprint method-discovery)
+                        (prn path path path-params)
                         (-> init-map
                             (assoc :url (path-fn op))
                             (add-auth client)
