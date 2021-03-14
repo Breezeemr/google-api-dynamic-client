@@ -6,7 +6,8 @@
              :as bootstrap]
             [aleph.http :as http]
             [cemerick.url :as url]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [manifold.deferred :as d]))
 
 
 (defn fast-select-keys [ks]
@@ -21,7 +22,7 @@
           (transient {})
           ks)
         persistent!
-        (with-meta (meta map))))))
+        (with-meta (meta m))))))
 
 (defn param-pattern [param]
   (re-pattern (str "\\{\\+{0,1}" param"\\}")))
@@ -185,9 +186,38 @@
                       (:version client)))
     (reqfn client operation)))
 
+;from https://github.com/cognitect-labs/aws-api/blob/v0.8.301/src/cognitect/aws/protocols/common.clj#L9
+(def status-codes->anomalies
+  {403 :cognitect.anomalies/forbidden
+   404 :cognitect.anomalies/not-found
+   503 :cognitect.anomalies/busy
+   504 :cognitect.anomalies/unavailable})
+
+(defn status-code->anomaly [code]
+  (or (get status-codes->anomalies code)
+      (if (<= 400 code 499)
+        :cognitect.anomalies/incorrect
+        :cognitect.anomalies/fault)))
+
 (defn invoke [client operation]
-  (let [req (request client operation)]
-    (http/request req)))
+  (let [req (request client operation)
+        respd (http/request req)]
+    (-> respd
+        (d/chain'
+          (fn [{:keys [body status] :as response}]
+            (if (and (>= status 200)
+                     (< status 300))
+              (with-meta body
+                         {:request  req
+                          :response response})
+              (with-meta {:cognitect.anomalies/category (status-code->anomaly status)}
+                         {:request  req
+                          :response response}))))
+        (d/catch'
+          (fn [e]
+            (with-meta {:cognitect.anomalies/category :cognitect.anomalies/fault
+                        :error e}
+                       {:request  req}))))))
 
 
 
