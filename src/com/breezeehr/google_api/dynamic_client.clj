@@ -172,28 +172,25 @@
               (or (get api-discovery "parameters") [])
               (get api-discovery "resources"))))))
 
+(defn print-params [params]
+  (doseq [[name {:strs [type required] opdesc "description"}] params]
+    (println "      " name
+             " type: "
+             type
+             (if required
+               " required "
+               " optional "))
+    (wrap/println opdesc 80 14)))
 (defn ops [client]
   (run!
     (fn [[id {:keys [description parameters] :as x}]]
       (println "* " id)
-      (println "   path-parameters:")
-      (doseq [[name {:strs [type required] opdesc "description"}] (filter (comp #{"path"} #(get % "location") second ) parameters)]
-        (println "      " name
-                 " type: "
-                 type
-                 (if required
-                   " required "
-                   " optional "))
-        (wrap/println opdesc 80 14))
-      (doseq [[name {:strs [type required] opdesc "description"}] (filter (comp #{"query"} #(get % "location") second ) parameters)]
-        (println "      " name
-                 " type: "
-                 type
-                 (if required
-                   " required "
-                   " optional "))
-        (wrap/println opdesc  80 14))
-      (println "   query-parameters:")
+      (when-some [params (not-empty (filter (comp #{"path"} #(get % "location") second) parameters))]
+        (println "   path-parameters:")
+        (print-params params))
+      (when-some [params (not-empty (filter (comp #{"query"} #(get % "location") second ) parameters))]
+        (println "   query-parameters:")
+        (print-params params))
       (println "   description:")
       (wrap/println description))
     (->> client :ops
