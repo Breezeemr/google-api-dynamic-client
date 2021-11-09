@@ -5,6 +5,7 @@
             [com.breezeehr.google-api.boostrap
              :as bootstrap]
             [aleph.http :as http]
+            [clj-wrap-indent.core :as wrap]
             [cemerick.url :as url]
             [clojure.string :as str]
             [manifold.deferred :as d]))
@@ -87,6 +88,7 @@
     ;(prn (keys method-discovery))
     [id {:id          id
          :description (get method-discovery "description")
+         :parameters  (get method-discovery "parameters")
          :request
                       (fn [client op]
                         ;(clojure.pprint/pprint method-discovery)
@@ -172,10 +174,28 @@
 
 (defn ops [client]
   (run!
-    (fn [[id {:keys [description]}]]
+    (fn [[id {:keys [description parameters] :as x}]]
       (println "* " id)
-      (print description)
-      (println \newline))
+      (println "   path-parameters:")
+      (doseq [[name {:strs [type required] opdesc "description"}] (filter (comp #{"path"} #(get % "location") second ) parameters)]
+        (println "      " name
+                 " type: "
+                 type
+                 (if required
+                   " required "
+                   " optional "))
+        (wrap/println opdesc 80 14))
+      (doseq [[name {:strs [type required] opdesc "description"}] (filter (comp #{"query"} #(get % "location") second ) parameters)]
+        (println "      " name
+                 " type: "
+                 type
+                 (if required
+                   " required "
+                   " optional "))
+        (wrap/println opdesc  80 14))
+      (println "   query-parameters:")
+      (println "   description:")
+      (wrap/println description))
     (->> client :ops
          (sort-by key))))
 (defn request [client {:keys [op] :as operation}]
