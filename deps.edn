@@ -1,14 +1,15 @@
 {:paths ["src" "resources"]
- :deps  {org.clojure/clojure                {:mvn/version "1.10.1"}
+ :deps  {org.clojure/clojure                {:mvn/version "1.10.3"}
          com.breezeehr.google-api/bootstrap {:local/root "../google-api-bootstrap"}
          com.breezeehr.google-api/java-auth {:local/root "../google-api-java-auth"}
-         cheshire/cheshire                  {:mvn/version "5.10.0"}
+         com.gfredericks/test.chuck         {:mvn/version "0.2.13"}
+         cheshire/cheshire                  {:mvn/version "5.10.1"}
          com.cemerick/url                   {:mvn/version "0.1.1"}
          clj-wrap-indent/clj-wrap-indent    {:mvn/version "1.0.0"}
          aleph/aleph                        {:mvn/version "0.4.7-alpha7"}}
  :aliases
         {:test    {:extra-paths ["test"]
-                   :extra-deps  {org.clojure/test.check {:mvn/version "1.0.0"}}}
+                   :extra-deps  {org.clojure/test.check {:mvn/version "1.1.1"}}}
          :runner
                   {:extra-deps {com.cognitect/test-runner
                                 {:git/url "https://github.com/cognitect-labs/test-runner"
