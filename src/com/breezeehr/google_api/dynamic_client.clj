@@ -1,10 +1,11 @@
 (ns com.breezeehr.google-api.dynamic-client
   (:require [cheshire.core :as json]
             [com.breezeehr.google-api.java-auth
-             :refer [add-auth init-client]]
+             :refer [add-auth init-client service-account-credentials]]
             [com.breezeehr.google-api.boostrap
              :as bootstrap]
             [aleph.http :as http]
+            [clojure.java.io :as io]
             [clj-wrap-indent.core :as wrap]
             [cemerick.url :as url]
             [clojure.string :as str]
