@@ -76,11 +76,10 @@
 
 (defn make-method [{:strs [baseUrl] :as api-discovery}
                    upper-parameters
-                   {:strs [httpMethod parameterOrder path parameters request id]
+                   {:strs [httpMethod parameterOrder path parameters request response id]
                     :as   method-discovery}]
   (let [parameters (into upper-parameters parameters)
-        init-map     {:method httpMethod
-                      :as     :json}
+        init-map     {:method httpMethod}
         path-params  (into {} (filter (comp #(= % "path") #(get % "location") val)) parameters)
         path-fn      (make-path-fn baseUrl path path-params parameterOrder id)
         query-params (into {} (filter (comp #(= % "query") #(get % "location") val)) parameters)
@@ -91,20 +90,21 @@
          :description (get method-discovery "description")
          :parameters  (get method-discovery "parameters")
          :request
-                      (fn [client op]
-                        ;(clojure.pprint/pprint method-discovery)
-                        ;(prn path path path-params)
-                        (-> init-map
-                            (assoc :url (path-fn op))
-                            (add-auth client)
-                            (assoc :query-params (key-sel-fn op)
-                                   :throw-exceptions false)
-                            (cond->
-                              request (assoc :body (let [enc-body (:request op)]
-                                                     (assert enc-body (str "Request cannot be nil for operation " (:op op)))
-                                                     (cheshire.core/generate-string enc-body))))
-                            ;(doto prn)
-                            ))}]))
+         (fn [client op]
+           ;(clojure.pprint/pprint method-discovery)
+           ;(prn path path path-params)
+           (-> init-map
+               (assoc :url (path-fn op))
+               (add-auth client)
+               (assoc :query-params (key-sel-fn op))
+               (cond->
+                 (and response (not (= (:alt op) "media")))
+                 (assoc :as :json)
+                 request (assoc :body (let [enc-body (:request op)]
+                                        (assert enc-body (str "Request cannot be nil for operation " (:op op)))
+                                        (cheshire.core/generate-string enc-body))))
+               ;(doto prn)
+               ))}]))
 
 (defn prepare-methods [api-discovery parameters methods]
   (reduce-kv
@@ -217,25 +217,63 @@
         :cognitect.anomalies/incorrect
         :cognitect.anomalies/fault)))
 
+(defn parse-response [{:keys [body]
+                       {:strs [content-type]}
+                       :headers :as response}]
+  (if-some [ctype (some->  content-type (.split ";") (nth 0))]
+    (assoc response :body (case ctype
+                             "application/json" (json/parse-stream (io/reader body) true)))
+    response))
+(defn catch-anomalies' [deferred ]
+  (d/catch' deferred
+            (fn [e]
+              (let [{:keys [status body aleph/request] :as response} (parse-response (ex-data e))]
+                (if (and status body)
+                  (with-meta (into {:cognitect.anomalies/category (status-code->anomaly status)}
+                                   body)
+                             {:request  request
+                              :response response})
+                  (throw e))))))
+
+(defn catch-anomalies [deferred req]
+  (d/catch' deferred
+    (fn [e]
+      (with-meta {:cognitect.anomalies/category :cognitect.anomalies/fault
+                  :error e}
+                 {:request  req}))))
+
+(defn invoke' [client operation]
+  (let [req (request client operation)
+        respd (http/request (assoc req :save-request? true)) ]
+    (-> respd
+        (d/chain'
+          (fn [{:keys [body status aleph/request as] :as response}]
+            (if (= :json (:as req))
+              (with-meta body
+                         {:request  request
+                          :response response})
+              (with-meta response
+                         {:request  req}))))
+        )))
+
 (defn invoke [client operation]
   (let [req (request client operation)
-        respd (http/request req)]
+        respd (http/request (assoc req :throw-exceptions false))]
     (-> respd
         (d/chain'
           (fn [{:keys [body status] :as response}]
             (if (and (>= status 200)
                      (< status 300))
-              (with-meta body
-                         {:request  req
-                          :response response})
+              (if (= :json (:as req))
+                (with-meta body
+                           {:request  req
+                            :response response})
+                (with-meta response
+                           {:request  req}))
               (with-meta {:cognitect.anomalies/category (status-code->anomaly status)}
                          {:request  req
                           :response response}))))
-        (d/catch'
-          (fn [e]
-            (with-meta {:cognitect.anomalies/category :cognitect.anomalies/fault
-                        :error e}
-                       {:request  req}))))))
+        (catch-anomalies req))))
 
 
 

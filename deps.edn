@@ -6,7 +6,7 @@
          cheshire/cheshire                  {:mvn/version "5.10.1"}
          com.cemerick/url                   {:mvn/version "0.1.1"}
          clj-wrap-indent/clj-wrap-indent    {:mvn/version "1.0.0"}
-         aleph/aleph                        {:mvn/version "0.4.7-alpha7"}}
+         aleph/aleph                        {:mvn/version "0.4.7-alpha10"}}
  :aliases
         {:test    {:extra-paths ["test"]
                    :extra-deps  {org.clojure/test.check {:mvn/version "1.1.1"}}}
