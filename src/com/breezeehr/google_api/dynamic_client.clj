@@ -106,6 +106,7 @@
            (-> init-map
                (assoc :url (case (:uploadType op)
                              "media" ((get media-pfns "simple") op)
+                             "multipart" ((get media-pfns "simple") op)
                              (path-fn op)))
                (add-auth client)
                (assoc :query-params (key-sel-fn op))
@@ -113,10 +114,13 @@
                  (and response (not (= (:alt op) "media")))
                  (assoc :as :json)
                  request (assoc :body (let [enc-body (:request op)]
-                                        (assert enc-body (str "Request cannot be nil for operation " (:op op)))
                                         (case (:uploadType op)
-                                          "media" enc-body
-                                          (cheshire.core/generate-string enc-body)))))
+                                          "media" (do (assert enc-body (str "Request cannot be nil for operation " (:op op)))
+                                                      enc-body)
+                                          "multipart" enc-body
+                                          (do (assert enc-body (str "Request cannot be nil for operation " (:op op)))
+                                            (cheshire.core/generate-string enc-body)))))
+                 (:multipart op) (assoc :multipart (:multipart op)))
                ;(doto prn)
                ))}]))
 
