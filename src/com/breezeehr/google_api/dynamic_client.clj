@@ -77,13 +77,19 @@
                      (bfn acc vals))
                    (StringBuffer.)
                    path-ops)))))
-
+(defn encode-method [m]
+  (case m
+    "POST" :post
+    "PUT"  :put
+    "GET" :get
+    "DELETE" :delete
+    "PATCH" :patch))
 (defn make-method [{:strs [baseUrl rootUrl] :as api-discovery}
                    upper-parameters
                    {:strs [httpMethod mediaUpload parameterOrder path parameters request response id]
                     :as   method-discovery}]
   (let [parameters (into upper-parameters parameters)
-        init-map     {:method httpMethod}
+        init-map {:method (encode-method httpMethod)}
         path-params  (into {} (filter (comp #(= % "path") #(get % "location") val)) parameters)
         path-fn      (make-path-fn baseUrl path path-params parameterOrder id)
         media-pfns   (into {}
@@ -94,7 +100,8 @@
                            (get mediaUpload "protocols"))
         query-params (into {} (filter (comp #(= % "query") #(get % "location") val)) parameters)
         query-ks     (into [] (map key) query-params)
-        key-sel-fn   (fast-select-keys query-ks)]
+        key-sel-fn   (fast-select-keys (cond-> query-ks
+                                           mediaUpload (conj :uploadType)))]
     ;(prn (keys method-discovery))
     [id {:id          id
          :description (get method-discovery "description")
@@ -103,26 +110,30 @@
          (fn [client op]
            ;(clojure.pprint/pprint method-discovery)
            ;(prn path path path-params)
-           (-> init-map
-               (assoc :url (case (:uploadType op)
-                             "media" ((get media-pfns "simple") op)
-                             "multipart" ((get media-pfns "simple") op)
-                             (path-fn op)))
-               (add-auth client)
-               (assoc :query-params (key-sel-fn op))
-               (cond->
-                 (and response (not (= (:alt op) "media")))
-                 (assoc :as :json)
-                 request (assoc :body (let [enc-body (:request op)]
-                                        (case (:uploadType op)
-                                          "media" (do (assert enc-body (str "Request cannot be nil for operation " (:op op)))
-                                                      enc-body)
-                                          "multipart" enc-body
-                                          (do (assert enc-body (str "Request cannot be nil for operation " (:op op)))
-                                            (cheshire.core/generate-string enc-body)))))
-                 (:multipart op) (assoc :multipart (:multipart op)))
-               ;(doto prn)
-               ))}]))
+           (let [uploadType (:uploadType op)]
+             (-> init-map
+                 (assoc :url (case (:uploadType op)
+                               "media" ((get media-pfns "simple") op)
+                               "resumable" ((get media-pfns "resumable") op)
+                               "multipart" ((get media-pfns "simple") op)
+                               (path-fn op)))
+                 (add-auth client)
+                 (assoc :query-params (key-sel-fn op))
+                 (cond->
+                   (and response (not (= (:alt op) "media")))
+                   (assoc :as :json)
+                   (and request (not= uploadType "media"))
+                   (assoc :content-type :json
+                          :form-params (let [enc-body (:request op)]
+                                         (assert enc-body (str "Request cannot be nil for operation " (:op op)))
+                                         enc-body))
+                   (and request (= uploadType "media"))
+                   (assoc :body (let [enc-body (:request op)]
+                                  (assert enc-body (str "Request cannot be nil for operation " (:op op)))
+                                  enc-body))
+                   (:multipart op) (assoc :multipart (:multipart op)))
+                 ;(doto prn)
+                 )))}]))
 
 (defn prepare-methods [api-discovery parameters methods]
   (reduce-kv
@@ -266,7 +277,7 @@
     (-> respd
         (d/chain'
           (fn [{:keys [body status aleph/request as] :as response}]
-            (if (= :json (:as req))
+            (if (and body (= :json (:as req)))
               (with-meta body
                          {:request  request
                           :response response})
@@ -282,7 +293,7 @@
           (fn [{:keys [body status] :as response}]
             (if (and (>= status 200)
                      (< status 300))
-              (if (= :json (:as req))
+              (if (and body (= :json (:as req)))
                 (with-meta body
                            {:request  req
                             :response response})
